@@ -161,6 +161,50 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
       ctx.stroke();
     }
 
+    // Sparse data nodes and travelling signals belong to the surface itself.
+    // They emerge only as the line unfolds, and stay still when time is frozen.
+    const texturePresence = intro * between(waveReveal, 0.08, 0.78);
+    if (texturePresence > 0) {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#91D4FF";
+      const rowStep = mobile ? 6 : 5;
+      const columnStep = mobile ? 5 : 4;
+      for (let row = 2; row < rows - 1; row += rowStep) {
+        for (let column = 4; column < columns * 0.94; column += columnStep) {
+          const seed = (row * 37 + column * 19 + row * column * 11) % 29;
+          if (seed > 16) continue;
+          const u = column / columns;
+          const edgeFade = between(u, 0.04, 0.18) * (1 - between(u, 0.84, 0.95));
+          const brightness = 0.48 + 0.22 * Math.sin(phase * 0.7 + seed * 1.31);
+          const radius = (mobile ? 0.68 : 0.85) + (seed / 28) * (mobile ? 0.3 : 0.45);
+          const point = surface(u, row / rows);
+          ctx.globalAlpha = texturePresence * edgeFade * brightness;
+          ctx.beginPath();
+          ctx.arc(point[0], point[1], radius, 0, TAU);
+          ctx.fill();
+        }
+      }
+
+      // Short tapered packets follow existing rows; no individual glow or gradient.
+      const packetCount = Math.max(2, Math.round((mobile ? 4 : 6) * quality));
+      const packetLength = mobile ? 0.045 : 0.03;
+      ctx.strokeStyle = "#8CD9FF";
+      ctx.lineWidth = mobile ? 1.05 : 1.35;
+      for (let packet = 0; packet < packetCount; packet++) {
+        const head = (0.14 + packet * 0.173 + time * WAVE_SPEED * 0.022 * (0.82 + (packet % 3) * 0.11)) % 1;
+        const depth = Math.round(rows * (0.18 + (packet % 6) * 0.128)) / rows;
+        const edgeFade = between(head, 0.06, 0.14) * (1 - between(head, 0.83, 0.94));
+        for (let segment = 0; segment < 5; segment++) {
+          const tail = head - packetLength + packetLength * segment / 5;
+          ctx.globalAlpha = texturePresence * edgeFade * (0.16 + segment * 0.145);
+          ctx.beginPath();
+          ctx.moveTo(...surface(tail, depth));
+          ctx.lineTo(...surface(tail + packetLength / 5, depth));
+          ctx.stroke();
+        }
+      }
+    }
+
     // The line becomes one actual surface ribbon and stays part of the wave.
     const curvePoints = [];
     for (let index = 0; index <= segments; index++) {
