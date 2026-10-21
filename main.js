@@ -28,9 +28,16 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
   // A monotonic, active-time sequence. Scroll changes its pace, never its place.
   function timelineState(seconds = TIMELINE_DURATION) {
     const t = Math.max(0, Number.isFinite(seconds) ? seconds : TIMELINE_DURATION);
+    const brandShineProgress = between(t, 0.9, 2.2);
+    // One soft pass on the existing clock; exactly off before and after it.
+    const brandShineOpacity = brandShineProgress > 0 && brandShineProgress < 1
+      ? Math.pow(Math.sin(Math.PI * brandShineProgress), 2) * 0.28
+      : 0;
     return {
       seconds: t,
       brandOpacity: between(t, 0.1, 1.1),
+      brandShineProgress,
+      brandShineOpacity,
       brandDock: dockBetween(t, 2.2, 4.7),
       brandScaleDock: dockBetween(t, 2.35, 4.8),
       heroWay: between(t, 5.1, 6.3),
@@ -241,6 +248,8 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
     stage.style.setProperty("--motion-speed", motionSpeed.toFixed(3));
     stage.style.setProperty("--intro", intro.toFixed(4));
     stage.style.setProperty("--brand-opacity", state.brandOpacity.toFixed(4));
+    stage.style.setProperty("--brand-shine-x", `${lerp(-50, 50, state.brandShineProgress).toFixed(3)}%`);
+    stage.style.setProperty("--brand-shine-opacity", state.brandShineOpacity.toFixed(4));
     stage.style.setProperty("--brand-dock", state.brandDock.toFixed(5));
     stage.style.setProperty("--brand-scale-dock", state.brandScaleDock.toFixed(5));
     stage.style.setProperty("--brand-y", `${((1 - state.brandDock) * initialBrandY).toFixed(3)}px`);

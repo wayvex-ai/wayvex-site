@@ -19,6 +19,8 @@ p, h1 { margin: 0; }
 .experience { position: relative; height: 190vh; height: 190svh; }
 .stage {
   --brand-opacity: 1;
+  --brand-shine-x: 50%;
+  --brand-shine-opacity: 0;
   --brand-dock: 1;
   --brand-y: 0px;
   --brand-scale: 1;
@@ -49,6 +51,35 @@ p, h1 { margin: 0; }
   will-change: transform, opacity;
 }
 .wordmark, .wordmark img { display: block; width: 100%; height: auto; }
+.wordmark { position: relative; }
+/* A fixed alpha mask preserves the supplied artwork; only the light moves. */
+.brand-shine {
+  display: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: var(--brand-shine-opacity);
+  -webkit-mask-image: url("wayvex-logo.png");
+  -webkit-mask-position: center;
+  -webkit-mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-image: url("wayvex-logo.png");
+  mask-mode: alpha;
+  mask-position: center;
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+}
+.brand-shine::before {
+  content: "";
+  position: absolute;
+  inset: -30% -50%;
+  background: linear-gradient(110deg, transparent 44%, rgba(158, 206, 255, .6) 48%, #fff 50%, rgba(158, 206, 255, .6) 52%, transparent 56%);
+  transform: translate3d(var(--brand-shine-x), 0, 0);
+}
+@supports (mask-image: url("wayvex-logo.png")) or (-webkit-mask-image: url("wayvex-logo.png")) {
+  .brand-shine { display: block; }
+}
 .hero-copy {
   position: absolute;
   z-index: 2;
@@ -122,6 +153,7 @@ h1 {
   .status { top: 59%; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .brand-shine { display: none !important; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .stage { --brand-opacity: 1 !important; --brand-dock: 1 !important; --brand-y: 0px !important; --brand-scale: 1 !important; --status-reveal: 1 !important; }
   #hero-way, #hero-wave { opacity: 1; transform: none; }
