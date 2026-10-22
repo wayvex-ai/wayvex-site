@@ -126,7 +126,7 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
       ];
     }
 
-    // A luminous packet uses only a few overlaid strokes, never a blur filter.
+    // Each crisp packet has a narrow cyan trail and a near-white moving tip.
     // Its sampled path stays on the surface, including during pointer deformation.
     function drawPacket(head, depth, length, opacity, emphasis = 1) {
       if (opacity <= 0.001) return;
@@ -142,23 +142,24 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
       ctx.shadowBlur = 0;
       ctx.beginPath();
       points.forEach((point, index) => index ? ctx.lineTo(...point) : ctx.moveTo(...point));
-      ctx.strokeStyle = "#2FA7FF";
-      ctx.lineWidth = (mobile ? 5.2 : 7.2) * emphasis;
-      ctx.globalAlpha = opacity * 0.12;
+      ctx.strokeStyle = "#55D9FF";
+      ctx.lineWidth = (mobile ? 1.15 : 1.55) * emphasis;
+      ctx.globalAlpha = opacity * 0.72;
       ctx.stroke();
-      ctx.strokeStyle = "#62CFFF";
-      ctx.lineWidth = (mobile ? 2.8 : 3.8) * emphasis;
-      ctx.globalAlpha = opacity * 0.25;
-      ctx.stroke();
-      ctx.strokeStyle = "#D6F5FF";
-      ctx.lineWidth = (mobile ? 0.95 : 1.25) * emphasis;
+      ctx.strokeStyle = "#EDFCFF";
+      ctx.lineWidth = (mobile ? 0.7 : 0.9) * emphasis;
       for (let segment = 0; segment < 6; segment++) {
-        ctx.globalAlpha = opacity * (0.15 + 0.8 * ease((segment + 1) / 6));
+        ctx.globalAlpha = opacity * (0.12 + 0.88 * ease((segment + 1) / 6));
         ctx.beginPath();
         ctx.moveTo(...points[segment]);
         ctx.lineTo(...points[segment + 1]);
         ctx.stroke();
       }
+      ctx.fillStyle = "#EDFCFF";
+      ctx.globalAlpha = opacity;
+      ctx.beginPath();
+      ctx.arc(tip[0], tip[1], (mobile ? 0.9 : 1.1) * emphasis, 0, TAU);
+      ctx.fill();
     }
 
     // Keep the mesh unlit; a single luminous ridge grows into the wave.
@@ -222,14 +223,15 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
         }
       }
 
-      // Staggered currents breathe gently; each ray fades before wrapping around.
+      // Offset 1.8–2.34 second pulses vary smoothly, never blinking on and off.
       const packetCount = Math.round(lerp(mobile ? 7 : 12, mobile ? 10 : 16, (quality - 0.5) * 2));
       for (let packet = 0; packet < packetCount; packet++) {
         const head = (0.11 + packet * 0.618034 + time * WAVE_SPEED * 0.038 * (0.84 + (packet % 5) * 0.08)) % 1;
         const depth = Math.round(rows * (0.13 + ((packet * 0.381966 + 0.1) % 1) * 0.74)) / rows;
-        const breath = 0.72 + 0.28 * Math.sin(phase * 1.12 + packet * 1.73);
+        const pulsePeriod = 1.8 + (packet % 4) * 0.18;
+        const breath = 0.58 + 0.42 * Math.sin(time * WAVE_SPEED * TAU / pulsePeriod + packet * 1.73);
         const edgeFade = between(head, 0.04, 0.13) * (1 - between(head, 0.9, 0.99));
-        const length = (mobile ? 0.065 : 0.04) * (0.8 + breath * 0.2);
+        const length = (mobile ? 0.065 : 0.04) * (0.84 + breath * 0.24);
         drawPacket(head, depth, length, texturePresence * edgeFade * breath);
       }
     }
@@ -254,15 +256,18 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
     visibleCurve.forEach((point, index) => index ? ctx.lineTo(...point) : ctx.moveTo(...point));
     const ridgeLight = lerp(0.28, 0.72, waveReveal);
     if (ridgeLight > 0.01) {
-      ctx.globalAlpha = intro * ridgeLight * 0.085;
       ctx.strokeStyle = "#0D6BFF";
-      ctx.lineWidth = mobile ? 7 : 12;
-      ctx.shadowColor = "#0D6BFF";
-      ctx.shadowBlur = mobile ? 14 : 28;
-      ctx.stroke();
+      // Small screens keep a clean ridge without a full-canvas shadow pass.
+      if (!mobile) {
+        ctx.globalAlpha = intro * ridgeLight * 0.085;
+        ctx.lineWidth = 12;
+        ctx.shadowColor = "#0D6BFF";
+        ctx.shadowBlur = 28;
+        ctx.stroke();
+      }
       ctx.shadowBlur = 0;
-      ctx.globalAlpha = intro * ridgeLight * 0.20;
-      ctx.lineWidth = mobile ? 4 : 5;
+      ctx.globalAlpha = intro * ridgeLight * (mobile ? 0.28 : 0.20);
+      ctx.lineWidth = mobile ? 2.8 : 5;
       ctx.stroke();
     }
     ctx.globalAlpha = intro * (0.5 + ridgeLight * 0.5);
@@ -290,10 +295,13 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
   const experience = document.getElementById("experience");
   const canvas = document.getElementById("wave-canvas");
   const status = document.getElementById("status");
+  const motionToggle = document.getElementById("motion-toggle");
   if (status) status.textContent = STATUS;
   if (!stage || !experience || !canvas) return;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  let motionOptIn = false;
+  const motionReduced = () => reducedMotion.matches && !motionOptIn;
   let ctx;
   try { ctx = canvas.getContext("2d", { alpha: true }); } catch (_) { return; }
   if (!ctx) return; // The accessible SVG and all content remain available.
@@ -316,6 +324,7 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
   let frame = 0;
   let running = false;
   let onScreen = true;
+  let pageActive = true;
   let quality = 1;
   let slowFrames = 0;
   const pointer = { x: 0.5, y: 0.5, strength: 0 };
@@ -362,7 +371,8 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
     const brandTop = parseFloat(brandStyle?.top) || (mobile ? 34 : viewportWidth >= 1600 ? (window.innerHeight || height) * 0.06 : 42);
     initialBrandScale = (mobile ? width * 0.86 : Math.min(width * 0.8, 580)) / finalBrandWidth;
     initialBrandY = height / 2 - (brandTop + finalBrandWidth / 10);
-    scale = Math.min(window.devicePixelRatio || 1, width < 700 ? 1.5 : 1.75);
+    // A 2× mobile backing store keeps the narrow light cores crisp on Retina screens.
+    scale = Math.min(window.devicePixelRatio || 1, 2);
     quality = width < 700 ? 0.68 : 1;
     canvas.width = Math.round(width * scale);
     canvas.height = Math.round(height * scale);
@@ -383,6 +393,7 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
     const desiredSpeed = 1 + scrollBoost;
     motionSpeed = lerp(motionSpeed, desiredSpeed, 1 - Math.exp(-delta / 220));
     motionSpeed = clamp(motionSpeed, 1, 3);
+    const previousTimeline = timeline;
     timeline = Math.min(TIMELINE_DURATION, timeline + delta / 1000 * motionSpeed * INTRO_SPEED);
     // Breathing responds too, but stays calmer than the narrative: at most 1.5x.
     elapsed += delta / 1000 * (1 + (motionSpeed - 1) * 0.25);
@@ -391,11 +402,12 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
     pointer.x = lerp(pointer.x, pointerTarget.x, pointerBlend);
     pointer.y = lerp(pointer.y, pointerTarget.y, pointerBlend);
     pointer.strength = lerp(pointer.strength, pointerTarget.strength, pointerBlend);
-    setState();
+    // Once the opening is complete, only the canvas moves: avoid mobile style churn.
+    if (timeline !== previousTimeline) setState();
     draw();
 
     // Sustained slow devices reduce mesh density, never the scene's geometry.
-    if (rawDelta > 24 && rawDelta < 100 && now - startedAt > 3000) slowFrames++;
+    if (rawDelta > 24 && now - startedAt > 3000) slowFrames++;
     else slowFrames = Math.max(0, slowFrames - 1);
     if (slowFrames > 75 && quality > 0.55) {
       quality = Math.max(0.55, quality - 0.12);
@@ -407,8 +419,13 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
   function syncPlayback() {
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
-    running = !document.hidden && onScreen && !reducedMotion.matches;
-    if (reducedMotion.matches) {
+    running = pageActive && !document.hidden && onScreen && !motionReduced();
+    if (motionToggle) {
+      motionToggle.hidden = !reducedMotion.matches;
+      motionToggle.textContent = motionOptIn ? "Pause animation" : "Play animation";
+      motionToggle.setAttribute("aria-pressed", String(motionOptIn));
+    }
+    if (motionReduced()) {
       timeline = TIMELINE_DURATION;
       motionSpeed = 1;
       scrollBoost = 0;
@@ -430,13 +447,13 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
     const interval = Math.max(16, Math.min(100, now - lastScrollAt));
     previousScrollY = y;
     lastScrollAt = now;
-    if (reducedMotion.matches || !running || distance < 0.25) return;
+    if (motionReduced() || !running || distance < 0.25) return;
     const velocity = distance / interval; // Pixels per millisecond, either direction.
     scrollBoost = Math.min(2, scrollBoost + velocity * 0.75);
   }
 
   function onPointer(event) {
-    if (reducedMotion.matches) return;
+    if (motionReduced()) return;
     const bounds = stage.getBoundingClientRect();
     pointerTarget.x = clamp((event.clientX - bounds.left) / bounds.width);
     pointerTarget.y = clamp((event.clientY - bounds.top) / bounds.height);
@@ -452,7 +469,43 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", resize, { passive: true });
   document.addEventListener("visibilitychange", syncPlayback);
-  reducedMotion.addEventListener("change", syncPlayback);
+  // Older mobile WebKit exposes MediaQueryList.addListener only. Do not let an
+  // optional preference listener prevent the canvas and opening from starting.
+  function onMotionPreferenceChange() {
+    motionOptIn = false;
+    body.classList.remove("motion-enabled");
+    syncPlayback();
+  }
+  if (typeof reducedMotion.addEventListener === "function") {
+    reducedMotion.addEventListener("change", onMotionPreferenceChange);
+  } else if (typeof reducedMotion.addListener === "function") {
+    reducedMotion.addListener(onMotionPreferenceChange);
+  }
+  if (motionToggle) motionToggle.addEventListener("click", () => {
+    motionOptIn = !motionOptIn;
+    body.classList.toggle("motion-enabled", motionOptIn);
+    if (motionOptIn) {
+      timeline = 0;
+      elapsed = 0;
+      scrollBoost = 0;
+      motionSpeed = 1;
+      setState();
+      draw();
+    }
+    syncPlayback();
+  });
+  // Mobile browsers can restore a cached page with no active animation callback.
+  window.addEventListener("pagehide", () => {
+    pageActive = false;
+    syncPlayback();
+  });
+  window.addEventListener("pageshow", () => {
+    pageActive = true;
+    const bounds = experience.getBoundingClientRect();
+    onScreen = bounds.bottom > 0 && bounds.top < window.innerHeight;
+    resize();
+    syncPlayback();
+  });
   if (typeof IntersectionObserver !== "undefined") {
     new IntersectionObserver(([entry]) => {
       onScreen = entry.isIntersecting;

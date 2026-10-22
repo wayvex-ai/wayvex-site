@@ -133,6 +133,22 @@ h1 {
   padding: 36px 7% 28px;
   background: var(--navy);
 }
+.motion-toggle {
+  position: absolute;
+  z-index: 4;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #8acbff55;
+  border-radius: 24px;
+  color: #d6efff;
+  background: #071127;
+  font: 500 11px "Montserrat", sans-serif;
+  cursor: pointer;
+}
+.motion-toggle[hidden] { display: none; }
+.motion-toggle:focus-visible { outline: 2px solid #8acbff; outline-offset: 4px; }
 .footer p { font-size: 9px; font-weight: 500; line-height: 1.7; letter-spacing: .025em; color: var(--muted); }
 @media (min-width: 1600px) {
   .stage { --brand-top: 6vh; }
@@ -153,8 +169,8 @@ h1 {
   .status { top: 59%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .brand-shine { display: none !important; }
+  body:not(.motion-enabled) .brand-shine { display: none !important; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
-  .stage { --brand-opacity: 1 !important; --brand-dock: 1 !important; --brand-y: 0px !important; --brand-scale: 1 !important; --status-reveal: 1 !important; }
-  #hero-way, #hero-wave { opacity: 1; transform: none; }
+  body:not(.motion-enabled) .stage { --brand-opacity: 1 !important; --brand-dock: 1 !important; --brand-y: 0px !important; --brand-scale: 1 !important; --status-reveal: 1 !important; }
+  body:not(.motion-enabled) #hero-way, body:not(.motion-enabled) #hero-wave { opacity: 1; transform: none; }
 }
