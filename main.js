@@ -43,6 +43,8 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
       heroWay: between(t, 5.1, 6.3),
       heroWave: between(t, 8, 9.5),
       lineDraw: between(t, 5.1, 7.3),
+      linePulseProgress: between(t, 6.45, 8.4),
+      linePulseOpacity: between(t, 6.45, 6.7) * (1 - between(t, 8.15, 8.4)),
       waveReveal: between(t, 8, 11.2),
       status: between(t, 12, 13.2)
     };
@@ -124,6 +126,41 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
       ];
     }
 
+    // A luminous packet uses only a few overlaid strokes, never a blur filter.
+    // Its sampled path stays on the surface, including during pointer deformation.
+    function drawPacket(head, depth, length, opacity, emphasis = 1) {
+      if (opacity <= 0.001) return;
+      const tip = surface(head, depth);
+      const tail = surface(head - length, depth);
+      const pixelLength = Math.hypot(tip[0] - tail[0], tip[1] - tail[1]);
+      // Keep a compact ray even where the exponential becomes almost vertical.
+      length *= Math.min(1, (mobile ? 32 : 58) * emphasis / Math.max(1, pixelLength));
+      const points = [];
+      for (let segment = 0; segment <= 6; segment++) {
+        points.push(surface(head - length + length * segment / 6, depth));
+      }
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      points.forEach((point, index) => index ? ctx.lineTo(...point) : ctx.moveTo(...point));
+      ctx.strokeStyle = "#2FA7FF";
+      ctx.lineWidth = (mobile ? 5.2 : 7.2) * emphasis;
+      ctx.globalAlpha = opacity * 0.12;
+      ctx.stroke();
+      ctx.strokeStyle = "#62CFFF";
+      ctx.lineWidth = (mobile ? 2.8 : 3.8) * emphasis;
+      ctx.globalAlpha = opacity * 0.25;
+      ctx.stroke();
+      ctx.strokeStyle = "#D6F5FF";
+      ctx.lineWidth = (mobile ? 0.95 : 1.25) * emphasis;
+      for (let segment = 0; segment < 6; segment++) {
+        ctx.globalAlpha = opacity * (0.15 + 0.8 * ease((segment + 1) / 6));
+        ctx.beginPath();
+        ctx.moveTo(...points[segment]);
+        ctx.lineTo(...points[segment + 1]);
+        ctx.stroke();
+      }
+    }
+
     // Keep the mesh unlit; a single luminous ridge grows into the wave.
     const meshGradient = ctx.createLinearGradient(0, 0, width, 0);
     meshGradient.addColorStop(0, "rgba(13,107,255,0)");
@@ -185,23 +222,15 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
         }
       }
 
-      // Short tapered packets follow existing rows; no individual glow or gradient.
-      const packetCount = Math.max(2, Math.round((mobile ? 4 : 6) * quality));
-      const packetLength = mobile ? 0.045 : 0.03;
-      ctx.strokeStyle = "#8CD9FF";
-      ctx.lineWidth = mobile ? 1.05 : 1.35;
+      // Staggered currents breathe gently; each ray fades before wrapping around.
+      const packetCount = Math.round(lerp(mobile ? 7 : 12, mobile ? 10 : 16, (quality - 0.5) * 2));
       for (let packet = 0; packet < packetCount; packet++) {
-        const head = (0.14 + packet * 0.173 + time * WAVE_SPEED * 0.022 * (0.82 + (packet % 3) * 0.11)) % 1;
-        const depth = Math.round(rows * (0.18 + (packet % 6) * 0.128)) / rows;
-        const edgeFade = between(head, 0.06, 0.14) * (1 - between(head, 0.83, 0.94));
-        for (let segment = 0; segment < 5; segment++) {
-          const tail = head - packetLength + packetLength * segment / 5;
-          ctx.globalAlpha = texturePresence * edgeFade * (0.16 + segment * 0.145);
-          ctx.beginPath();
-          ctx.moveTo(...surface(tail, depth));
-          ctx.lineTo(...surface(tail + packetLength / 5, depth));
-          ctx.stroke();
-        }
+        const head = (0.11 + packet * 0.618034 + time * WAVE_SPEED * 0.038 * (0.84 + (packet % 5) * 0.08)) % 1;
+        const depth = Math.round(rows * (0.13 + ((packet * 0.381966 + 0.1) % 1) * 0.74)) / rows;
+        const breath = 0.72 + 0.28 * Math.sin(phase * 1.12 + packet * 1.73);
+        const edgeFade = between(head, 0.04, 0.13) * (1 - between(head, 0.9, 0.99));
+        const length = (mobile ? 0.065 : 0.04) * (0.8 + breath * 0.2);
+        drawPacket(head, depth, length, texturePresence * edgeFade * breath);
       }
     }
 
@@ -240,6 +269,13 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
     ctx.strokeStyle = "#0D6BFF";
     ctx.lineWidth = lerp(0.95, mobile ? 1.65 : 2, ridgeLight);
     ctx.stroke();
+
+    // One welcoming ray follows the already drawn line, then yields to the sea.
+    // The final/reduced-motion frame has no introductory ray to replay.
+    if (timeline && timeline.linePulseOpacity > 0) {
+      drawPacket(Math.min(lineDraw, timeline.linePulseProgress), 0.46,
+        mobile ? 0.085 : 0.055, intro * timeline.linePulseOpacity, 1.25);
+    }
 
     ctx.restore();
   }
