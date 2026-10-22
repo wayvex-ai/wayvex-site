@@ -25,6 +25,41 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
   }
   const dockBetween = (value, start, end) => dockEase((value - start) / (end - start));
 
+  const COMET_SPECS = Array.from({ length: 16 }, (_, index) => {
+    const startU = 0.045 + ((index * 0.381966 + 0.17) % 1) * 0.11;
+    const joinU = 0.36 + ((index * 0.618034 + 0.13) % 1) * 0.22;
+    const startDepth = 0.08 + ((index * 0.472136 + 0.2) % 1) * 0.84;
+    const joinTime = 6.8 + (index % 5) * 0.55;
+    const joinSpeed = (joinU - startU) / joinTime;
+    const acceleration = 1.1 + (index % 3) * 0.1;
+    const arrivalTime = joinTime + Math.log1p((1 - joinU) * acceleration / joinSpeed) / acceleration;
+    const tailDuration = 0.64 + (index % 3) * 0.06;
+    const cycleDuration = arrivalTime + tailDuration + 0.55 + (index % 4) * 0.13;
+    return { startU, joinU, startDepth, joinTime, joinSpeed, acceleration,
+      arrivalTime, tailDuration, cycleDuration, phaseOffset: ((index * 0.618034 + 0.07) % 1) * cycleDuration };
+  });
+
+  // Age is local to one journey. Position and velocity agree on both sides of
+  // the join; after arrival the mathematical head continues outside the canvas.
+  function cometTrajectory(age, index = 0) {
+    const spec = COMET_SPECS[((Math.trunc(index) % 16) + 16) % 16];
+    const approach = clamp(age / spec.joinTime);
+    const ridgeAge = Math.max(0, age - spec.joinTime);
+    const speed = age < 0 ? 0 : spec.joinSpeed * Math.exp(spec.acceleration * ridgeAge);
+    const u = age <= spec.joinTime
+      ? spec.startU + spec.joinSpeed * Math.max(0, age)
+      : age === spec.arrivalTime ? 1
+        : spec.joinU + spec.joinSpeed * Math.expm1(spec.acceleration * ridgeAge) / spec.acceleration;
+    return {
+      u, depth: age >= spec.joinTime ? 0.46 : lerp(spec.startDepth, 0.46, ease(approach)), speed,
+      depthSpeed: age > 0 && age < spec.joinTime
+        ? (0.46 - spec.startDepth) * 6 * approach * (1 - approach) / spec.joinTime : 0,
+      headVisible: age >= 0 && age <= spec.arrivalTime,
+      joinTime: spec.joinTime, arrivalTime: spec.arrivalTime,
+      tailDuration: spec.tailDuration, cycleDuration: spec.cycleDuration, phaseOffset: spec.phaseOffset
+    };
+  }
+
   // A monotonic, active-time sequence. Scroll changes its pace, never its place.
   function timelineState(seconds = TIMELINE_DURATION) {
     const t = Math.max(0, Number.isFinite(seconds) ? seconds : TIMELINE_DURATION);
@@ -43,8 +78,8 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
       heroWay: between(t, 5.1, 6.3),
       heroWave: between(t, 8, 9.5),
       lineDraw: between(t, 5.1, 7.3),
-      linePulseProgress: between(t, 6.45, 8.4),
-      linePulseOpacity: between(t, 6.45, 6.7) * (1 - between(t, 8.15, 8.4)),
+      linePulseProgress: Math.expm1(2.4 * clamp((t - 6.45) / 1.95)) / Math.expm1(2.4),
+      linePulseOpacity: between(t, 6.45, 6.7) * (1 - between(t, 8.4, 8.95)),
       waveReveal: between(t, 8, 11.2),
       status: between(t, 12, 13.2)
     };
@@ -126,40 +161,64 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
       ];
     }
 
-    // Each crisp packet has a narrow cyan trail and a near-white moving tip.
-    // Its sampled path stays on the surface, including during pointer deformation.
-    function drawPacket(head, depth, length, opacity, emphasis = 1) {
-      if (opacity <= 0.001) return;
-      const tip = surface(head, depth);
-      const tail = surface(head - length, depth);
-      const pixelLength = Math.hypot(tip[0] - tail[0], tip[1] - tail[1]);
-      // Keep a compact ray even where the exponential becomes almost vertical.
-      length *= Math.min(1, (mobile ? 32 : 58) * emphasis / Math.max(1, pixelLength));
+    // The tail is a history of both u and depth, attached to today's moving mesh.
+    // Once the head leaves, only its remaining history drains toward the corner.
+    function drawComet(age, trajectory, arrivalTime, tailDuration, opacity, pulse, emphasis = 1) {
+      if (opacity <= 0.001 || age < 0 || age >= arrivalTime + tailDuration) return;
+      const endAge = Math.min(age, arrivalTime);
+      const startAge = Math.max(0, age - tailDuration);
+      const samples = mobile ? 14 : 20;
+      const maxLength = (mobile ? 84 : 132) * emphasis;
       const points = [];
-      for (let segment = 0; segment <= 6; segment++) {
-        points.push(surface(head - length + length * segment / 6, depth));
+      let travelled = 0;
+      for (let sample = 0; sample <= samples; sample++) {
+        let sampleAge = lerp(endAge, startAge, sample / samples);
+        let state = trajectory(sampleAge);
+        let point = surface(state.u, state.depth);
+        const previous = points[points.length - 1];
+        if (previous) {
+          const distance = Math.hypot(point[0] - previous.point[0], point[1] - previous.point[1]);
+          if (travelled + distance > maxLength) {
+            sampleAge = lerp(previous.age, sampleAge, (maxLength - travelled) / distance);
+            state = trajectory(sampleAge);
+            point = surface(state.u, state.depth);
+            points.push({ point, age: sampleAge });
+            break;
+          }
+          travelled += distance;
+        }
+        points.push({ point, age: sampleAge });
       }
+      points.reverse();
       ctx.shadowBlur = 0;
-      ctx.beginPath();
-      points.forEach((point, index) => index ? ctx.lineTo(...point) : ctx.moveTo(...point));
-      ctx.strokeStyle = "#55D9FF";
-      ctx.lineWidth = (mobile ? 1.15 : 1.55) * emphasis;
-      ctx.globalAlpha = opacity * 0.72;
-      ctx.stroke();
-      ctx.strokeStyle = "#EDFCFF";
-      ctx.lineWidth = (mobile ? 0.7 : 0.9) * emphasis;
-      for (let segment = 0; segment < 6; segment++) {
-        ctx.globalAlpha = opacity * (0.12 + 0.88 * ease((segment + 1) / 6));
+      const oldestAge = points[0].age;
+      const drain = 1 - between(age, arrivalTime, arrivalTime + tailDuration);
+      const tailLight = opacity * drain * (0.4 + pulse * 0.6);
+      for (let segment = 1; segment < points.length; segment++) {
+        const taper = clamp((points[segment].age - oldestAge) / Math.max(0.001, age - oldestAge));
+        ctx.strokeStyle = "#64DCFF";
+        ctx.lineWidth = (0.12 + (mobile ? 1.65 : 2.05) * taper) * emphasis;
+        ctx.globalAlpha = tailLight * taper * taper;
         ctx.beginPath();
-        ctx.moveTo(...points[segment]);
-        ctx.lineTo(...points[segment + 1]);
+        ctx.moveTo(...points[segment - 1].point);
+        ctx.lineTo(...points[segment].point);
         ctx.stroke();
       }
-      ctx.fillStyle = "#EDFCFF";
-      ctx.globalAlpha = opacity;
-      ctx.beginPath();
-      ctx.arc(tip[0], tip[1], (mobile ? 0.9 : 1.1) * emphasis, 0, TAU);
-      ctx.fill();
+      if (age <= arrivalTime) {
+        const state = trajectory(age);
+        const tip = surface(state.u, state.depth);
+        const radius = ((mobile ? 1.65 : 2.05) + pulse * 0.4) * emphasis;
+        ctx.fillStyle = "#58D9FF";
+        ctx.globalAlpha = opacity * (0.52 + pulse * 0.48);
+        ctx.beginPath();
+        ctx.arc(tip[0], tip[1], radius, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = "#F1FDFF";
+        ctx.globalAlpha = opacity * (0.65 + pulse * 0.35);
+        ctx.beginPath();
+        ctx.arc(tip[0], tip[1], radius * (0.54 + pulse * 0.08), 0, TAU);
+        ctx.fill();
+      }
     }
 
     // Keep the mesh unlit; a single luminous ridge grows into the wave.
@@ -223,17 +282,6 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
         }
       }
 
-      // Offset 1.8–2.34 second pulses vary smoothly, never blinking on and off.
-      const packetCount = Math.round(lerp(mobile ? 7 : 12, mobile ? 10 : 16, (quality - 0.5) * 2));
-      for (let packet = 0; packet < packetCount; packet++) {
-        const head = (0.11 + packet * 0.618034 + time * WAVE_SPEED * 0.038 * (0.84 + (packet % 5) * 0.08)) % 1;
-        const depth = Math.round(rows * (0.13 + ((packet * 0.381966 + 0.1) % 1) * 0.74)) / rows;
-        const pulsePeriod = 1.8 + (packet % 4) * 0.18;
-        const breath = 0.58 + 0.42 * Math.sin(time * WAVE_SPEED * TAU / pulsePeriod + packet * 1.73);
-        const edgeFade = between(head, 0.04, 0.13) * (1 - between(head, 0.9, 0.99));
-        const length = (mobile ? 0.065 : 0.04) * (0.84 + breath * 0.24);
-        drawPacket(head, depth, length, texturePresence * edgeFade * breath);
-      }
     }
 
     // The line becomes one actual surface ribbon and stays part of the wave.
@@ -275,18 +323,34 @@ const MORPH_CURVE = 5.2; // Exponential curvature; try 4–6.5.
     ctx.lineWidth = lerp(0.95, mobile ? 1.65 : 2, ridgeLight);
     ctx.stroke();
 
+    // Comets sit above the ridge so its blue stroke never covers their white core.
+    if (texturePresence > 0) {
+      const packetCount = Math.round(lerp(mobile ? 7 : 12, mobile ? 10 : 16, (quality - 0.5) * 2));
+      for (let packet = 0; packet < packetCount; packet++) {
+        const spec = COMET_SPECS[packet];
+        const age = ((time * WAVE_SPEED + spec.phaseOffset) % spec.cycleDuration + spec.cycleDuration) % spec.cycleDuration;
+        const pulsePeriod = 1.8 + (packet % 4) * 0.18;
+        const pulse = 0.5 + 0.5 * Math.sin(time * WAVE_SPEED * TAU / pulsePeriod + packet * 1.73);
+        drawComet(age, sampleAge => cometTrajectory(sampleAge, packet), spec.arrivalTime,
+          spec.tailDuration, texturePresence * between(age, 0, 0.42), pulse);
+      }
+    }
+
     // One welcoming ray follows the already drawn line, then yields to the sea.
     // The final/reduced-motion frame has no introductory ray to replay.
     if (timeline && timeline.linePulseOpacity > 0) {
-      drawPacket(Math.min(lineDraw, timeline.linePulseProgress), 0.46,
-        mobile ? 0.085 : 0.055, intro * timeline.linePulseOpacity, 1.25);
+      drawComet(timeline.seconds - 6.45, age => {
+        const state = timelineState(6.45 + age);
+        return { u: Math.min(state.lineDraw, state.linePulseProgress), depth: 0.46 };
+      }, 8.4 - 6.45, 0.55, intro * timeline.linePulseOpacity,
+      0.5 + 0.5 * Math.sin((timeline.seconds - 6.45) * TAU / 2.1), 1.1);
     }
 
     ctx.restore();
   }
 
   // Public only so the same renderer can produce an exact static OG frame.
-  globalThis.WayvexScene = Object.freeze({ renderFrame, timelineState });
+  globalThis.WayvexScene = Object.freeze({ renderFrame, timelineState, cometTrajectory });
   if (typeof document === "undefined") return;
 
   const body = document.body;
